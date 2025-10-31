@@ -8,7 +8,7 @@
     ".": "./src/index.mjs"
   },
   "bin": {
-    "azure-auth-check": "./bin/azure-auth-check.mjs"
+    "azure-artifacts-auth-check": "./bin/azure-artifacts-auth-check.mjs"
   },
   "files": [
     "bin",

@@ -21,7 +21,7 @@ npm install -g azure-artifacts-auth-check
 Run the CLI inside your project directory (where `azure-feed.config.json` lives):
 
 ```bash
-azure-auth-check
+azure-artifacts-auth-check
 ```
 
 To enforce the check before every install, add a preinstall hook in your `package.json`:
@@ -29,7 +29,7 @@ To enforce the check before every install, add a preinstall hook in your `packag
 ```json
 {
   "scripts": {
-    "preinstall": "azure-auth-check --silent"
+    "preinstall": "azure-artifacts-auth-check --silent"
   }
 }
 ```
@@ -39,7 +39,7 @@ Using `--silent` avoids noise during routine installs; the command only prints w
 ### Options
 
 ```
-azure-auth-check [options]
+azure-artifacts-auth-check [options]
 
 Options:
   --config <path>        Path to azure-feed.config.json (defaults to ./azure-feed.config.json)
