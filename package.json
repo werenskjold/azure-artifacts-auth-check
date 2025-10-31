@@ -1,0 +1,30 @@
+{
+  "name": "azure-artifacts-auth-check",
+  "version": "0.1.0",
+  "description": "Azure DevOps npm authentication preflight and setup CLI",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "bin": {
+    "azure-auth-check": "./bin/azure-auth-check.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "azure",
+    "azure-devops",
+    "npm",
+    "artifacts",
+    "authentication"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
