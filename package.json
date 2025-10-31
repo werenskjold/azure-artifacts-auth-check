@@ -24,6 +24,10 @@
     "authentication"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/werenskjold/azure-artifacts-auth-check.git"
+  },
   "engines": {
     "node": ">=18"
   }
