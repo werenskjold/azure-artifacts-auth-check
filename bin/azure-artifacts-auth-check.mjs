@@ -3,7 +3,7 @@ import process from 'process';
 import { run } from '../src/index.mjs';
 
 function printHelp() {
-  console.log(`Azure DevOps npm Auth Check\n\nUsage:\n  azure-artifacts-auth-check [options]\n\nOptions:\n  --config <path>        Path to azure-feed.config.json (defaults to ./azure-feed.config.json)\n  --cwd <path>           Project directory (defaults to current working directory)\n  --global-npmrc <path>  Override path to global ~/.npmrc\n  --local-npmrc <path>   Override path to project .npmrc\n  --silent               Suppress output unless action is required\n  --help                 Show this help message\n`);
+  console.log(`Azure DevOps npm Auth Check\n\nUsage:\n  azure-artifacts-auth-check [options]\n\nOptions:\n  --config <path>        Path to azure-feed.config.json (defaults to ./azure-feed.config.json)\n  --cwd <path>           Project directory (defaults to current working directory)\n  --global-npmrc <path>  Override path to global ~/.npmrc\n  --local-npmrc <path>   Override path to project .npmrc\n  --use-pat              Force PAT authentication (skip vsts-npm-auth on Windows)\n  --silent               Suppress output unless action is required\n  --help                 Show this help message\n`);
 }
 
 async function main() {
@@ -29,6 +29,9 @@ async function main() {
         break;
       case '--local-npmrc':
         options.localNpmrcPath = args[++i];
+        break;
+      case '--use-pat':
+        options.usePat = true;
         break;
       case '--silent':
         options.silent = true;

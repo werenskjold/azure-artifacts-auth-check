@@ -212,6 +212,11 @@ function updateNpmrc(feed, pat, npmrcPath) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
+    // Remove standalone always-auth=true (legacy global config that npm now warns about)
+    if (line === 'always-auth=true' && !inOurFeedSection) {
+      continue;
+    }
+
     if (line.startsWith(';') && feedIdentifiers.some((id) => line.includes(id))) {
       inOurFeedSection = true;
       continue;
@@ -224,11 +229,6 @@ function updateNpmrc(feed, pat, npmrcPath) {
     }
 
     if (inOurFeedSection && line === '') {
-      inOurFeedSection = false;
-      continue;
-    }
-
-    if (inOurFeedSection && line === 'always-auth=true') {
       inOurFeedSection = false;
       continue;
     }
@@ -258,10 +258,6 @@ function updateNpmrc(feed, pat, npmrcPath) {
 
   npmrcContent = filteredLines.join('\n') + authConfig;
 
-  if (!npmrcContent.includes('always-auth=true')) {
-    npmrcContent += '\nalways-auth=true\n';
-  }
-
   writeNpmrc(npmrcPath, npmrcContent);
 }
 
@@ -284,7 +280,8 @@ async function testAuthentication(feed) {
 
   try {
     await execAsync(`npm view ${probe.name} version --registry=${feed.registryUrl}`, {
-      timeout: 10000
+      timeout: 10000,
+      shell: true
     });
 
     let note;
@@ -338,6 +335,60 @@ async function promptForPAT(organization) {
   }
 
   return pat.trim();
+}
+
+function isWindows() {
+  return os.platform() === 'win32';
+}
+
+function ensureRegistryInNpmrc(feed, npmrcPath) {
+  let npmrcContent = readNpmrc(npmrcPath);
+  const { registryUrlNormalized } = getRegistryKeys(feed);
+
+  // Check if registry URL already exists in any form
+  if (npmrcContent.includes(registryUrlNormalized)) {
+    return;
+  }
+
+  // Ensure scope mapping is present (required for vsts-npm-auth to find the registry)
+  const scope = normalizeScope(feed.scope);
+  if (scope) {
+    const scopeLine = `${scope}:registry=${registryUrlNormalized}`;
+    if (!npmrcContent.includes(scopeLine)) {
+      if (npmrcContent.length > 0 && !npmrcContent.endsWith('\n')) {
+        npmrcContent += '\n';
+      }
+      npmrcContent += `${scopeLine}\n`;
+      writeNpmrc(npmrcPath, npmrcContent);
+    }
+  }
+}
+
+async function authenticateWithVstsNpmAuth(npmrcPath, options) {
+  banner('\n🔐 Using Windows native authentication (vsts-npm-auth)...', options);
+  banner('   This will use your Windows credentials or prompt for Azure DevOps login.\n', options);
+
+  try {
+    const result = await execAsync(`npx vsts-npm-auth -C "${npmrcPath}"`, {
+      timeout: 60000,
+      shell: true
+    });
+
+    if (result.stdout) {
+      log(result.stdout, options);
+    }
+    if (result.stderr) {
+      warn(result.stderr, options);
+    }
+
+    return { success: true };
+  } catch (err) {
+    const output = [err?.stdout, err?.stderr, err?.message]
+      .filter(Boolean)
+      .join('\n');
+
+    return { success: false, error: output };
+  }
 }
 
 function log(message, options) {
@@ -504,55 +555,113 @@ export async function run(options = {}) {
 
   let allSuccessful = true;
 
-  for (const [organization, orgFeeds] of Object.entries(feedsByOrg)) {
-    banner(`\n━━━ ${organization} ━━━`, options);
-    banner(`Feeds needing authentication: ${orgFeeds.map((f) => f.feed).join(', ')}\n`, options);
+  // On Windows, use vsts-npm-auth (native Windows authentication) unless --use-pat is specified
+  if (isWindows() && !options.usePat) {
+    banner(`\n━━━ Windows Native Authentication ━━━`, options);
+    banner(`Feeds needing authentication: ${failedFeeds.map((f) => `${f.feed} (${f.organization})`).join(', ')}\n`, options);
 
-    const pat = await promptForPAT(organization);
-
-    if (!pat) {
-      banner(`⏭️  Skipped ${organization}\n`, options);
-      allSuccessful = false;
-      continue;
+    // Ensure all registry URLs are present in .npmrc (required by vsts-npm-auth)
+    for (const feed of failedFeeds) {
+      ensureRegistryInNpmrc(feed, globalNpmrcPath);
     }
 
-    banner(`\n📝 Updating credentials for ${orgFeeds.length} feed(s)...`, options);
+    const authResult = await authenticateWithVstsNpmAuth(globalNpmrcPath, options);
 
-    for (const feed of orgFeeds) {
-      updateNpmrc(feed, pat, globalNpmrcPath);
-      banner(`   ✓ ${feed.feed}`, options);
-    }
-
-    banner('\n🔍 Verifying credentials...', options);
-
-    let orgSuccess = true;
-    for (const feed of orgFeeds) {
-      const verificationResult = await testAuthentication(feed);
-      const hasCreds = hasRegistryCredentials(readNpmrc(globalNpmrcPath), feed);
-
-      if (verificationResult.ok && hasCreds) {
-        const suffix = verificationResult.note ? ` (${verificationResult.note})` : '';
-        banner(`   ✅ ${feed.feed} - authenticated${suffix}`, options);
-      } else {
-        if (!hasCreds) {
-          banner(`   ❌ ${feed.feed} - credentials not written to ~/.npmrc`, options);
-        } else if (verificationResult.reason === 'unauthorized') {
-          banner(`   ❌ ${feed.feed} - authentication failed`, options);
-        } else {
-          banner(`   ❌ ${feed.feed} - request failed (probe: ${verificationResult.probe})`, options);
-          formatDetail(verificationResult.detail, options);
-        }
-        orgSuccess = false;
-      }
-    }
-
-    if (!orgSuccess) {
-      error(`\n❌ Some feeds in ${organization} are still failing.`, options);
-      error('   Please verify your PAT has the correct permissions.', options);
-      error('   Required scope: Packaging (Read)\n', options);
+    if (!authResult.success) {
+      error('\n❌ Windows authentication failed:', options);
+      error(authResult.error, options);
+      error('\nPlease ensure you have access to Azure DevOps and can authenticate interactively.', options);
       allSuccessful = false;
     } else {
-      banner(`\n✅ All ${organization} feeds authenticated successfully!\n`, options);
+      banner('\n🔍 Verifying credentials...', options);
+
+      let hasFailures = false;
+      for (const feed of failedFeeds) {
+        const verificationResult = await testAuthentication(feed);
+        const hasCreds = hasRegistryCredentials(readNpmrc(globalNpmrcPath), feed);
+
+        if (verificationResult.ok && hasCreds) {
+          const suffix = verificationResult.note ? ` (${verificationResult.note})` : '';
+          banner(`   ✅ ${feed.feed} - authenticated${suffix}`, options);
+        } else {
+          if (!hasCreds) {
+            banner(`   ❌ ${feed.feed} - credentials not written to ~/.npmrc`, options);
+          } else if (verificationResult.reason === 'unauthorized') {
+            banner(`   ❌ ${feed.feed} - authentication failed`, options);
+          } else {
+            banner(`   ❌ ${feed.feed} - request failed (probe: ${verificationResult.probe})`, options);
+            formatDetail(verificationResult.detail, options);
+          }
+          hasFailures = true;
+        }
+      }
+
+      if (hasFailures) {
+        error('\n❌ Some feeds are still failing after authentication.', options);
+        error('   Please verify you have the correct permissions in Azure DevOps.', options);
+        error('   Required scope: Packaging (Read)\n', options);
+        allSuccessful = false;
+      } else {
+        banner('\n✅ All feeds authenticated successfully!\n', options);
+      }
+    }
+  } else {
+    // On macOS/Linux, use PAT-based authentication
+    // Or on Windows when --use-pat is specified
+    if (isWindows() && options.usePat) {
+      banner('\n💡 Using PAT authentication (--use-pat specified)', options);
+    }
+
+    for (const [organization, orgFeeds] of Object.entries(feedsByOrg)) {
+      banner(`\n━━━ ${organization} ━━━`, options);
+      banner(`Feeds needing authentication: ${orgFeeds.map((f) => f.feed).join(', ')}\n`, options);
+
+      const pat = await promptForPAT(organization);
+
+      if (!pat) {
+        banner(`⏭️  Skipped ${organization}\n`, options);
+        allSuccessful = false;
+        continue;
+      }
+
+      banner(`\n📝 Updating credentials for ${orgFeeds.length} feed(s)...`, options);
+
+      for (const feed of orgFeeds) {
+        updateNpmrc(feed, pat, globalNpmrcPath);
+        banner(`   ✓ ${feed.feed}`, options);
+      }
+
+      banner('\n🔍 Verifying credentials...', options);
+
+      let orgSuccess = true;
+      for (const feed of orgFeeds) {
+        const verificationResult = await testAuthentication(feed);
+        const hasCreds = hasRegistryCredentials(readNpmrc(globalNpmrcPath), feed);
+
+        if (verificationResult.ok && hasCreds) {
+          const suffix = verificationResult.note ? ` (${verificationResult.note})` : '';
+          banner(`   ✅ ${feed.feed} - authenticated${suffix}`, options);
+        } else {
+          if (!hasCreds) {
+            banner(`   ❌ ${feed.feed} - credentials not written to ~/.npmrc`, options);
+          } else if (verificationResult.reason === 'unauthorized') {
+            banner(`   ❌ ${feed.feed} - authentication failed`, options);
+          } else {
+            banner(`   ❌ ${feed.feed} - request failed (probe: ${verificationResult.probe})`, options);
+            formatDetail(verificationResult.detail, options);
+          }
+          orgSuccess = false;
+        }
+      }
+
+      if (!orgSuccess) {
+        error(`\n❌ Some feeds in ${organization} are still failing.`, options);
+        error('   Please verify your PAT has the correct permissions.', options);
+        error('   Required scope: Packaging (Read)\n', options);
+        allSuccessful = false;
+      } else {
+        banner(`\n✅ All ${organization} feeds authenticated successfully!\n`, options);
+      }
     }
   }
 

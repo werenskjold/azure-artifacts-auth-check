@@ -1,6 +1,6 @@
 {
   "name": "azure-artifacts-auth-check",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Azure DevOps npm authentication preflight and setup CLI",
   "type": "module",
   "main": "./src/index.mjs",
