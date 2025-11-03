@@ -1,6 +1,6 @@
 import { exec } from 'child_process';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, isAbsolute, normalize } from 'path';
 import { createInterface } from 'readline';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
@@ -18,7 +18,7 @@ function resolveConfigPath({ cwd, explicitPath }) {
   const candidates = [];
 
   if (explicitPath) {
-    candidates.push(explicitPath.startsWith('/') ? explicitPath : join(cwd, explicitPath));
+    candidates.push(isAbsolute(explicitPath) ? explicitPath : join(cwd, explicitPath));
   }
 
   candidates.push(join(cwd, 'azure-feed.config.json'));
@@ -369,7 +369,8 @@ async function authenticateWithVstsNpmAuth(npmrcPath, options) {
   banner('   This will use your Windows credentials or prompt for Azure DevOps login.\n', options);
 
   try {
-    const result = await execAsync(`npx vsts-npm-auth -C "${npmrcPath}"`, {
+    const normalizedPath = normalize(npmrcPath);
+    const result = await execAsync(`npx vsts-npm-auth -C "${normalizedPath}"`, {
       timeout: 60000,
       shell: true
     });

@@ -1,6 +1,6 @@
 {
   "name": "azure-artifacts-auth-check",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Azure DevOps npm authentication preflight and setup CLI",
   "type": "module",
   "main": "./src/index.mjs",
@@ -30,5 +30,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "vsts-npm-auth": "^0.43.0"
   }
 }
